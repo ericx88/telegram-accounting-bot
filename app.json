@@ -1,0 +1,28 @@
+{
+  "name": "telegram-accounting-bot",
+  "description": "Telegram群组记账机器人，支持收支记录和消息转发",
+  "keywords": ["telegram", "bot", "accounting", "group"],
+  "website": "https://railway.app",
+  "repository": "https://github.com/your-username/telegram-accounting-bot",
+  "env": {
+    "BOT_TOKEN": {
+      "description": "从 @BotFather 获取的 Telegram Bot Token",
+      "required": true
+    },
+    "PYTHONUNBUFFERED": {
+      "description": "Python输出不缓冲",
+      "value": "1",
+      "required": false
+    },
+    "PYTHONDONTWRITEBYTECODE": {
+      "description": "Python不生成字节码文件",
+      "value": "1",
+      "required": false
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+# 忽略不需要上传到Railway的文件
+.git
+.gitignore
+README.md
+.env
+.env.example
+Dockerfile
+docker-compose.yml
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
