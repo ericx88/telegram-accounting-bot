@@ -7,19 +7,27 @@ from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.enums import ChatType
-from aiogram.types import Message, ChatMemberUpdated
+from aiogram.types import Message, ChatMemberUpdated, Update
 from aiogram.client.default import DefaultBotProperties
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiohttp import web
 
 # ======= 1. Bot Token 配置 =======
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("请设置 BOT_TOKEN 环境变量")
 
-# ======= 2. 群列表存放文件 =======
-# Railway 上使用 /tmp 目录，该目录在部署期间是持久的
+# ======= 2. Webhook 配置 =======
+# Railway 会自动设置 PORT 环境变量
+PORT = int(os.getenv("PORT", 8000))
+WEBHOOK_HOST = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
+WEBHOOK_PATH = f"/webhook/{BOT_TOKEN[:32]}"  # 使用Token前32位作为路径
+WEBHOOK_URL = f"https://{WEBHOOK_HOST}{WEBHOOK_PATH}"
+
+# ======= 3. 群列表存放文件 =======
 GROUPS_FILE = Path("/tmp/groups.json")
 
-# ======= 3. 记账存放文件 =======
+# ======= 4. 记账存放文件 =======
 LEDGER_FILE = Path("/tmp/ledger.json")
 
 
@@ -263,7 +271,15 @@ async def cmd_start(message: Message):
         "1. 私聊我 → 我把消息发到我在的所有群。\n"
         "2. 群里发 +100 / -50 / +87.6 备注 → 我帮你记账（支持小数）。\n"
         "3. 群里发'账单' → 我把本群账本列出来。\n"
+        "\n🤖 Webhook模式运行中"
     )
+
+
+# ================== Webhook 处理 ==================
+
+async def cmd_status(request):
+    """健康检查端点"""
+    return web.Response(text="Bot is running with webhook mode")
 
 
 # ================== 主入口 ==================
@@ -278,35 +294,79 @@ async def main():
 
         # 获取Bot信息以验证Token有效性
         bot_info = await bot.get_me()
-        print(f"Bot started successfully: @{bot_info.username} (ID: {bot_info.id})")
+        print(f"🤖 Bot started successfully: @{bot_info.username} (ID: {bot_info.id})")
+        print(f"🌐 Webhook URL: {WEBHOOK_URL}")
+        print(f"📡 Webhook Path: {WEBHOOK_PATH}")
 
         dp = Dispatcher()
 
-        # 私聊
+        # 注册处理器
         dp.message.register(cmd_start, F.text == "/start")
         dp.message.register(handle_private_message, F.chat.type == ChatType.PRIVATE)
-
-        # 群消息
         dp.message.register(
             handle_group_message,
             F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP})
         )
-
-        # 机器人被拉进/踢出群
         dp.my_chat_member.register(handle_my_chat_member)
 
-        print("Bot is polling for messages...")
-        await dp.start_polling(bot)
+        # 强制清除可能存在的旧webhook和轮询状态
+        print("🧹 清理旧配置...")
+        for i in range(3):
+            try:
+                await bot.delete_webhook(drop_pending_updates=True)
+                await asyncio.sleep(1)  # 等待1秒
+                print(f"   清理尝试 {i+1}/3 完成")
+            except Exception as e:
+                print(f"   清理尝试 {i+1} 失败: {e}")
+
+        # 设置新的webhook
+        print("⚙️ 设置新Webhook...")
+        await bot.set_webhook(
+            url=WEBHOOK_URL,
+            drop_pending_updates=True,
+            allowed_updates=["message", "my_chat_member"]
+        )
+        print(f"✅ Webhook设置成功: {WEBHOOK_URL}")
+
+        # 验证webhook设置
+        webhook_info = await bot.get_webhook_info()
+        print(f"📋 Webhook验证: {webhook_info.url}")
+
+        # 创建web应用
+        app = web.Application()
+
+        # 创建webhook请求处理器
+        webhook_request_handler = SimpleRequestHandler(
+            dispatcher=dp,
+            bot=bot,
+        )
+        webhook_request_handler.register(app, path=WEBHOOK_PATH)
+
+        # 添加健康检查路由
+        app.router.add_get("/", cmd_status)
+
+        # 启动web服务器
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', PORT)
+        await site.start()
+
+        print(f"🚀 Webhook服务器已启动，端口: {PORT}")
+        print(f"💚 健康检查: https://{WEBHOOK_HOST}/")
+        print("🎉 Bot以Webhook模式运行中...")
+
+        # 保持运行
+        while True:
+            await asyncio.sleep(3600)  # 每小时检查一次
 
     except Exception as e:
-        print(f"Bot startup error: {e}")
-        # 如果是冲突错误，等待后重试
+        print(f"❌ 启动错误: {e}")
         if "Conflict" in str(e):
-            print("Conflict detected. This usually means another bot instance is running.")
-            print("Please check:")
-            print("1. Stop any local bot instances")
-            print("2. Redeploy on Railway to ensure single instance")
-            print("3. Check Railway console for multiple deployments")
+            print("⚠️ 检测到冲突！")
+            print("💡 解决方案：")
+            print("   1. 等待5分钟后重新部署")
+            print("   2. 或联系@BotFather重新生成Token")
+            print("   3. 检查是否有其他实例在运行")
         raise
 
 
