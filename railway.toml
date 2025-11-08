@@ -4,3 +4,8 @@ builder = "RAILPACK"
 [deploy]
 startCommand = "python bot.py"
 restartPolicyType = "ON_FAILURE"
+
+[variables]
+RAILPACK_PYTHON_VERSION = "3.11"
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
